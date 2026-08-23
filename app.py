@@ -46,7 +46,7 @@ st.markdown("""
 # Load and process database dynamically
 @st.cache_data
 def load_data():
-    excel_path = 'Data Transaksi (4).xlsx'
+    excel_path = 'Data Transaksi (6).xlsx'
     df = pd.read_excel(excel_path, sheet_name=0)
     df_clean = df.dropna(subset=['No. Reg/Invoice']).copy()
     
@@ -97,7 +97,7 @@ page_option = st.sidebar.radio(
 # ==========================================
 if page_option == "Historical Data":
     st.title("📊 Historical Data Performance")
-    st.markdown("Ringkasan performa operasional & keuangan klinik berdasarkan database transaksi terkini (`Data Transaksi (4).xlsx`).")
+    st.markdown("Ringkasan performa operasional & keuangan klinik berdasarkan database transaksi terkini (`Data Transaksi (6).xlsx`).")
     st.markdown("---")
     
     # Calculate Metrics dynamically
