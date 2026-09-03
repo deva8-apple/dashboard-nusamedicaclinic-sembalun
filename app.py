@@ -137,14 +137,33 @@ def load_mcu_data(file_path):
         except:
             return pd.DataFrame()
         
-    df_mcu_clean = df_mcu.dropna(subset=['Nama Pasien']).copy() if 'Nama Pasien' in df_mcu.columns else df_mcu.dropna(how='all').copy()
-    
+    # Find Name column flexibly
+    name_col = None
+    for col in df_mcu.columns:
+        if 'NAMA' in str(col).upper() or 'PATIENT' in str(col).upper():
+            name_col = col
+            break
+            
+    if name_col:
+        df_mcu_clean = df_mcu.dropna(subset=[name_col]).copy()
+    else:
+        df_mcu_clean = df_mcu.dropna(how='all').copy()
+
+    # Find Country column flexibly
+    country_col = None
+    for col in df_mcu.columns:
+        if any(term in str(col).upper() for term in ['NEGARA', 'COUNTRY', 'WN', 'KEWARGANEGARAAN', 'ASAL']):
+            country_col = col
+            break
+
     def classify_mcu_country(row):
-        country = str(row.get('Asal Negara', '')).strip().upper()
-        if country in ['INDONESIA', 'NAN', '']:
-            return 'Lokal'
-        else:
-            return 'Bule'
+        if country_col:
+            val = str(row.get(country_col, '')).strip().upper()
+            if val in ['INDONESIA', 'ID', 'IDN', 'LOKAL', 'LOCAL', 'NAN', '', 'NONE', '-']:
+                return 'Lokal'
+            else:
+                return 'Bule'
+        return 'Lokal'
 
     df_mcu_clean['Patient_Category'] = df_mcu_clean.apply(classify_mcu_country, axis=1)
     df_mcu_clean['Service_Type'] = 'Medical Check Up'
