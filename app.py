@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import os
 
 # Set page configuration
@@ -66,6 +65,76 @@ current_files = file_mapping[selected_month]
 # -------------------------------------------------------------
 
 @st.cache_data
+def load_tx_data(file_path):
+    if not os.path.exists(file_path):
+        return pd.DataFrame()
+        
+    try:
+        df_tx = pd.read_excel(file_path, sheet_name='Data Transaksi')
+    except:
+        try:
+            df_tx = pd.read_excel(file_path, sheet_name=0)
+        except:
+            return pd.DataFrame()
+        
+    # Drop completely empty rows or headers
+    if 'No. Reg/Invoice' in df_tx.columns:
+        df_tx_clean = df_tx.dropna(subset=['No. Reg/Invoice']).copy()
+    else:
+        df_tx_clean = df_tx.dropna(how='all').copy()
+    
+    # Ensure Total is numeric
+    if 'Total' in df_tx_clean.columns:
+        df_tx_clean['Total'] = pd.to_numeric(df_tx_clean['Total'], errors='coerce').fillna(0)
+    else:
+        df_tx_clean['Total'] = 0.0
+
+    # Classify Patient Type
+    def classify_patient_type(row):
+        jp = str(row.get('Jenis Pasien', '')).strip()
+        if jp in ['Local', 'BPJS']:
+            return 'Lokal'
+        elif jp in ['Tourist', 'Expat', 'VIP']:
+            return 'Bule'
+        else:
+            wn = str(row.get('Negara/WN', '')).strip()
+            if wn in ['INDONESIA', 'nan', '']:
+                return 'Lokal'
+            else:
+                return 'Bule'
+
+    df_tx_clean['Patient_Category'] = df_tx_clean.apply(classify_patient_type, axis=1)
+
+    # Classify Service Type
+    def classify_service(row):
+        nama = str(row.get('Nama Pasien', '')).upper()
+        tot = row.get('Total', 0)
+        if 'PHARMACY' in nama:
+            return 'Farmasi'
+        elif tot in [30000.0, 50000.0]:
+            return 'Medical Check Up'
+        else:
+            return 'Perawatan'
+
+    df_tx_clean['Service_Type'] = df_tx_clean.apply(classify_service, axis=1)
+    
+    # Standardize Diagnosa Column
+    diag_col = None
+    for col in ['Nama Diagnosa', 'Nama Diagnosis', 'Diagnosa', 'Diag.']:
+        if col in df_tx_clean.columns:
+            diag_col = col
+            break
+            
+    if diag_col:
+        df_tx_clean['Diagnosa_Clean'] = df_tx_clean[diag_col].astype(str).str.strip()
+        # Filter out invalid string representations of NaN
+        df_tx_clean['Diagnosa_Clean'] = df_tx_clean['Diagnosa_Clean'].replace(['nan', 'NaN', 'None', '', '-'], None)
+    else:
+        df_tx_clean['Diagnosa_Clean'] = None
+
+    return df_tx_clean
+
+@st.cache_data
 def load_mcu_data(file_path):
     if not os.path.exists(file_path):
         return pd.DataFrame()
@@ -92,63 +161,17 @@ def load_mcu_data(file_path):
     df_mcu_clean['Total'] = df_mcu_clean['Patient_Category'].apply(lambda x: 50000.0 if x == 'Bule' else 30000.0)
     return df_mcu_clean
 
-@st.cache_data
-def load_tx_data(file_path):
-    if not os.path.exists(file_path):
-        return pd.DataFrame()
-        
-    try:
-        df_tx = pd.read_excel(file_path, sheet_name='Data Transaksi')
-    except:
-        try:
-            df_tx = pd.read_excel(file_path, sheet_name=0)
-        except:
-            return pd.DataFrame()
-        
-    if 'No. Reg/Invoice' in df_tx.columns:
-        df_tx_clean = df_tx.dropna(subset=['No. Reg/Invoice']).copy()
-    else:
-        df_tx_clean = df_tx.dropna(how='all').copy()
-    
-    def classify_patient_type(row):
-        jp = str(row.get('Jenis Pasien', '')).strip()
-        if jp in ['Local', 'BPJS']:
-            return 'Lokal'
-        elif jp in ['Tourist', 'Expat', 'VIP']:
-            return 'Bule'
-        else:
-            wn = str(row.get('Negara/WN', '')).strip()
-            if wn in ['INDONESIA', 'nan', '']:
-                return 'Lokal'
-            else:
-                return 'Bule'
-
-    df_tx_clean['Patient_Category'] = df_tx_clean.apply(classify_patient_type, axis=1)
-
-    def classify_service(row):
-        nama = str(row.get('Nama Pasien', '')).upper()
-        if 'PHARMACY' in nama:
-            return 'Farmasi'
-        else:
-            return 'Perawatan'
-
-    df_tx_clean = df_tx_clean[~((df_tx_clean['Total'] == 30000.0) | (df_tx_clean['Total'] == 50000.0))].copy()
-    df_tx_clean['Service_Type'] = df_tx_clean.apply(classify_service, axis=1)
-    return df_tx_clean
-
 # Load selected month files
-df_mcu = load_mcu_data(current_files["mcu"])
 df_tx = load_tx_data(current_files["tx"])
+df_mcu = load_mcu_data(current_files["mcu"])
 
 if df_tx.empty and df_mcu.empty:
     st.warning(f"⚠️ **Data {selected_month} Belum Tersedia / Sedang Diperbarui.**")
     st.info(f"Silakan upload file `{current_files['tx']}` dan `{current_files['mcu']}` ke repository GitHub Anda untuk menampilkan laporan bulan ini.")
     st.stop()
 
-# Combine Datasets
-df_mcu_subset = df_mcu[['Patient_Category', 'Service_Type', 'Total']].copy() if not df_mcu.empty else pd.DataFrame()
-df_tx_subset = df_tx[['Patient_Category', 'Service_Type', 'Total', 'Nama Diagnosa']].copy() if not df_tx.empty else pd.DataFrame()
-df_data = pd.concat([df_mcu_subset, df_tx_subset], ignore_index=True)
+# Use df_tx directly for all Revenue & Transaction Metrics to ensure Total matches Rekap Bulanan file exactly
+df_data = df_tx if not df_tx.empty else pd.DataFrame()
 
 # -------------------------------------------------------------
 # NAVIGATION & DISPLAY
@@ -161,22 +184,32 @@ page_option = st.sidebar.radio(
 
 if page_option == "Historical Data":
     st.title(f"📊 Historical Data Performance ({selected_month})")
-    st.markdown(f"Ringkasan performa operasional & keuangan klinik bulan **{selected_month}**.")
+    st.markdown(f"Ringkasan performa operasional & keuangan klinik bulan **{selected_month}** diekstrak langsung dari file **{current_files['tx']}**.")
     st.markdown("---")
     
-    total_rev = df_data['Total'].sum()
+    # 1. Total Revenue extracted DIRECTLY from Rekap Bulanan Data Transaksi Total sum
+    total_rev = df_data['Total'].sum() if not df_data.empty else 0
     rev_bule = df_data[df_data['Patient_Category'] == 'Bule']['Total'].sum() if not df_data.empty else 0
     rev_lokal = df_data[df_data['Patient_Category'] == 'Lokal']['Total'].sum() if not df_data.empty else 0
     
-    total_pat = len(df_data)
+    total_pat = len(df_data) if not df_data.empty else 0
     pat_bule = len(df_data[df_data['Patient_Category'] == 'Bule']) if not df_data.empty else 0
     pat_lokal = len(df_data[df_data['Patient_Category'] == 'Lokal']) if not df_data.empty else 0
     
-    mcu_total = len(df_mcu)
-    mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule']) if not df_mcu.empty else 0
-    mcu_lokal = len(df_mcu[df_mcu['Patient_Category'] == 'Lokal']) if not df_mcu.empty else 0
-    mcu_rev_bule = df_mcu[df_mcu['Patient_Category'] == 'Bule']['Total'].sum() if not df_mcu.empty else 0
-    mcu_rev_lokal = df_mcu[df_mcu['Patient_Category'] == 'Lokal']['Total'].sum() if not df_mcu.empty else 0
+    # MCU Count and Revenue from MCU File or Rekap
+    if not df_mcu.empty:
+        mcu_total = len(df_mcu)
+        mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule'])
+        mcu_lokal = len(df_mcu[df_mcu['Patient_Category'] == 'Lokal'])
+        mcu_rev_bule = df_mcu[df_mcu['Patient_Category'] == 'Bule']['Total'].sum()
+        mcu_rev_lokal = df_mcu[df_mcu['Patient_Category'] == 'Lokal']['Total'].sum()
+    else:
+        mcu_tx = df_data[df_data['Service_Type'] == 'Medical Check Up'] if not df_data.empty else pd.DataFrame()
+        mcu_total = len(mcu_tx)
+        mcu_bule = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
+        mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
+        mcu_rev_bule = mcu_tx[mcu_tx['Patient_Category'] == 'Bule']['Total'].sum()
+        mcu_rev_lokal = mcu_tx[mcu_tx['Patient_Category'] == 'Lokal']['Total'].sum()
 
     col1, col2, col3 = st.columns(3)
     
@@ -192,8 +225,8 @@ if page_option == "Historical Data":
     with col2:
         st.markdown(f"""
         <div class="metric-card" style="border-left-color: #1976D2;">
-            <div class="metric-title">👥 TOTAL PASIEN DATANG</div>
-            <div class="metric-value">{total_pat} Pasien</div>
+            <div class="metric-title">👥 TOTAL TRANSAKSI PASIEN</div>
+            <div class="metric-value">{total_pat} Transaksi</div>
             <div class="metric-sub">Bule: <b>{pat_bule} Pasien</b> ({(pat_bule/total_pat)*100 if total_pat else 0:.1f}%)<br>Lokal: <b>{pat_lokal} Pasien</b> ({(pat_lokal/total_pat)*100 if total_pat else 0:.1f}%)</div>
         </div>
         """, unsafe_allow_html=True)
@@ -263,6 +296,8 @@ if page_option == "Historical Data":
             fig_bule.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
             fig_bule.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
             st.plotly_chart(fig_bule, use_container_width=True)
+        else:
+            st.info("Belum ada data transaksi pasien bule.")
 
     with col_bar2:
         st.markdown("##### 🇮🇩 Rekapan Pasien Lokal")
@@ -274,17 +309,21 @@ if page_option == "Historical Data":
             fig_lokal.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
             fig_lokal.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
             st.plotly_chart(fig_lokal, use_container_width=True)
+        else:
+            st.info("Belum ada data transaksi pasien lokal.")
 
     st.markdown("---")
 
+    # --- TOP CASES & DIAGNOSA ---
     st.subheader("📋 Top Kasus Penyakit & Layanan Ditangani")
     col_case1, col_case2 = st.columns(2)
     
     with col_case1:
         st.markdown("##### 🌍 Top Kasus Diagnosa Pasien Bule")
-        if not df_tx.empty and 'Nama Diagnosa' in df_tx.columns:
-            bule_diag = df_tx[(df_tx['Patient_Category'] == 'Bule') & (df_tx['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
-            if not bule_diag.empty:
+        if not df_tx.empty and 'Diagnosa_Clean' in df_tx.columns:
+            bule_diag_df = df_tx[(df_tx['Patient_Category'] == 'Bule') & (df_tx['Diagnosa_Clean'].notna())]
+            if not bule_diag_df.empty:
+                bule_diag = bule_diag_df['Diagnosa_Clean'].value_counts().head(7).reset_index()
                 bule_diag.columns = ['Diagnosa', 'Jumlah']
                 bule_diag = bule_diag.sort_values('Jumlah', ascending=True)
                 
@@ -293,14 +332,24 @@ if page_option == "Historical Data":
                     text="Jumlah", color_discrete_sequence=["#AB47BC"]
                 )
                 fig_cb.update_traces(textposition="outside")
-                fig_cb.update_layout(xaxis_title="Jumlah Kasus Ditangani", yaxis_title="")
+                fig_cb.update_layout(
+                    xaxis_title="Jumlah Kasus Ditangani",
+                    yaxis_title="",
+                    height=380,
+                    margin=dict(l=10, r=20, t=30, b=40)
+                )
                 st.plotly_chart(fig_cb, use_container_width=True)
+            else:
+                st.info("ℹ️ Belum ada diagnosa/kasus penyakit tercatat untuk pasien bule pada periode ini.")
+        else:
+            st.info("ℹ️ Belum ada data diagnosa untuk pasien bule.")
 
     with col_case2:
         st.markdown("##### 🇮🇩 Top Kasus Diagnosa Pasien Lokal")
-        if not df_tx.empty and 'Nama Diagnosa' in df_tx.columns:
-            lokal_diag = df_tx[(df_tx['Patient_Category'] == 'Lokal') & (df_tx['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
-            if not lokal_diag.empty:
+        if not df_tx.empty and 'Diagnosa_Clean' in df_tx.columns:
+            lokal_diag_df = df_tx[(df_tx['Patient_Category'] == 'Lokal') & (df_tx['Diagnosa_Clean'].notna())]
+            if not lokal_diag_df.empty:
+                lokal_diag = lokal_diag_df['Diagnosa_Clean'].value_counts().head(7).reset_index()
                 lokal_diag.columns = ['Diagnosa', 'Jumlah']
                 lokal_diag = lokal_diag.sort_values('Jumlah', ascending=True)
                 
@@ -309,8 +358,17 @@ if page_option == "Historical Data":
                     text="Jumlah", color_discrete_sequence=["#26A69A"]
                 )
                 fig_cl.update_traces(textposition="outside")
-                fig_cl.update_layout(xaxis_title="Jumlah Kasus Ditangani", yaxis_title="")
+                fig_cl.update_layout(
+                    xaxis_title="Jumlah Kasus Ditangani",
+                    yaxis_title="",
+                    height=380,
+                    margin=dict(l=10, r=20, t=30, b=40)
+                )
                 st.plotly_chart(fig_cl, use_container_width=True)
+            else:
+                st.info("ℹ️ Belum ada diagnosa/kasus penyakit tercatat untuk pasien lokal pada periode ini.")
+        else:
+            st.info("ℹ️ Belum ada data diagnosa untuk pasien lokal.")
 
 elif page_option == "Future Prospects":
     st.title("🎯 Future Prospects & Financial Target")
