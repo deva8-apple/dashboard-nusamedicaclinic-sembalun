@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import os
 
 # Set page configuration
@@ -29,16 +30,16 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# SIDEBAR: PERIODE SELECTOR (JUNI - SEPTEMBER 2026)
+# SIDEBAR: NAVIGATION MENU
 # -------------------------------------------------------------
-st.sidebar.title("🗓️ Filter Periode Data")
+st.sidebar.title("🏥 Menu Navigasi")
 
-selected_month = st.sidebar.selectbox(
-    "PILIH BULAN TRANSAKSI:",
-    ["Juni 2026", "Juli 2026", "Agustus 2026", "September 2026"]
+page_option = st.sidebar.radio(
+    "PILIH TAMPILAN DASHBOARD:",
+    ["Historical Monthly Trend 📈", "Monthly Detail Analysis 📊", "Future Prospects 🎯"]
 )
 
-# Mapping nama file presisi sesuai seluruh instruksi
+# File Mapping for All Months
 file_mapping = {
     "Juni 2026": {
         "tx": "Rekap Bulanan Juni 2026.xlsx",
@@ -58,12 +59,7 @@ file_mapping = {
     }
 }
 
-current_files = file_mapping[selected_month]
-
-# -------------------------------------------------------------
-# DYNAMIC DATA EXTRACTION FUNCTIONS
-# -------------------------------------------------------------
-
+# Data Extraction Functions
 @st.cache_data
 def load_tx_data(file_path):
     if not os.path.exists(file_path):
@@ -77,19 +73,16 @@ def load_tx_data(file_path):
         except:
             return pd.DataFrame()
         
-    # Drop completely empty rows or headers
     if 'No. Reg/Invoice' in df_tx.columns:
         df_tx_clean = df_tx.dropna(subset=['No. Reg/Invoice']).copy()
     else:
         df_tx_clean = df_tx.dropna(how='all').copy()
     
-    # Ensure Total is numeric
     if 'Total' in df_tx_clean.columns:
         df_tx_clean['Total'] = pd.to_numeric(df_tx_clean['Total'], errors='coerce').fillna(0)
     else:
         df_tx_clean['Total'] = 0.0
 
-    # Classify Patient Type
     def classify_patient_type(row):
         jp = str(row.get('Jenis Pasien', '')).strip()
         if jp in ['Local', 'BPJS']:
@@ -105,7 +98,6 @@ def load_tx_data(file_path):
 
     df_tx_clean['Patient_Category'] = df_tx_clean.apply(classify_patient_type, axis=1)
 
-    # Classify Service Type
     def classify_service(row):
         nama = str(row.get('Nama Pasien', '')).upper()
         tot = row.get('Total', 0)
@@ -118,7 +110,6 @@ def load_tx_data(file_path):
 
     df_tx_clean['Service_Type'] = df_tx_clean.apply(classify_service, axis=1)
     
-    # Standardize Diagnosa Column
     diag_col = None
     for col in ['Nama Diagnosa', 'Nama Diagnosis', 'Diagnosa', 'Diag.']:
         if col in df_tx_clean.columns:
@@ -127,7 +118,6 @@ def load_tx_data(file_path):
             
     if diag_col:
         df_tx_clean['Diagnosa_Clean'] = df_tx_clean[diag_col].astype(str).str.strip()
-        # Filter out invalid string representations of NaN
         df_tx_clean['Diagnosa_Clean'] = df_tx_clean['Diagnosa_Clean'].replace(['nan', 'NaN', 'None', '', '-'], None)
     else:
         df_tx_clean['Diagnosa_Clean'] = None
@@ -161,33 +151,179 @@ def load_mcu_data(file_path):
     df_mcu_clean['Total'] = df_mcu_clean['Patient_Category'].apply(lambda x: 50000.0 if x == 'Bule' else 30000.0)
     return df_mcu_clean
 
-# Load selected month files
-df_tx = load_tx_data(current_files["tx"])
-df_mcu = load_mcu_data(current_files["mcu"])
-
-if df_tx.empty and df_mcu.empty:
-    st.warning(f"⚠️ **Data {selected_month} Belum Tersedia / Sedang Diperbarui.**")
-    st.info(f"Silakan upload file `{current_files['tx']}` dan `{current_files['mcu']}` ke repository GitHub Anda untuk menampilkan laporan bulan ini.")
-    st.stop()
-
-# Use df_tx directly for all Revenue & Transaction Metrics to ensure Total matches Rekap Bulanan file exactly
-df_data = df_tx if not df_tx.empty else pd.DataFrame()
 
 # -------------------------------------------------------------
-# NAVIGATION & DISPLAY
+# PAGE 1: HISTORICAL MONTHLY TREND 📈 (DASHBOARD KHUSUS TREN BULANAN)
 # -------------------------------------------------------------
-st.sidebar.markdown("---")
-page_option = st.sidebar.radio(
-    "PILIH HALAMAN:",
-    ["Historical Data", "Future Prospects"]
-)
+if page_option == "Historical Monthly Trend 📈":
+    st.title("📈 Historical Monthly Trend Dashboard")
+    st.markdown("Dashboard perbandingan tren bulanan untuk memantau pertumbuhan pendapatan, jumlah pasien MCU, dan breakdown kategori layanan.")
+    st.markdown("---")
 
-if page_option == "Historical Data":
-    st.title(f"📊 Historical Data Performance ({selected_month})")
-    st.markdown(f"Ringkasan performa operasional & keuangan klinik bulan **{selected_month}** diekstrak langsung dari file **{current_files['tx']}**.")
+    # Aggregate Data Across All Months
+    monthly_summary = []
+    mcu_summary = []
+    service_summary = []
+
+    for month_name, files in file_mapping.items():
+        df_tx_m = load_tx_data(files["tx"])
+        df_mcu_m = load_mcu_data(files["mcu"])
+
+        if not df_tx_m.empty:
+            tot_inc = df_tx_m['Total'].sum()
+            monthly_summary.append({
+                "Bulan": month_name,
+                "Total Income (Rp)": tot_inc
+            })
+
+            # Service type breakdown
+            srv_grp = df_tx_m.groupby('Service_Type')['Total'].sum().reset_index()
+            srv_grp['Bulan'] = month_name
+            service_summary.append(srv_grp)
+
+        if not df_mcu_m.empty:
+            mcu_lokal = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Lokal'])
+            mcu_turis = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Bule'])
+            mcu_summary.append({
+                "Bulan": month_name,
+                "Lokal": mcu_lokal,
+                "Turis / Bule": mcu_turis
+            })
+        elif not df_tx_m.empty:
+            mcu_tx = df_tx_m[df_tx_m['Service_Type'] == 'Medical Check Up']
+            mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
+            mcu_turis = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
+            mcu_summary.append({
+                "Bulan": month_name,
+                "Lokal": mcu_lokal,
+                "Turis / Bule": mcu_turis
+            })
+
+    df_income_trend = pd.DataFrame(monthly_summary)
+    df_mcu_trend = pd.DataFrame(mcu_summary)
+    df_service_trend = pd.concat(service_summary, ignore_index=True) if service_summary else pd.DataFrame()
+
+    if df_income_trend.empty and df_mcu_trend.empty:
+        st.warning("⚠️ **Belum ada data bulanan yang di-upload ke repository GitHub.**")
+        st.info("Silakan upload file Excel transaksi bulanan Anda untuk melihat tren perkembangan klinik.")
+        st.stop()
+
+    # --- BAR CHART 1: PERKEMBANGAN TOTAL INCOME KLINIK TIAP BULAN ---
+    st.subheader("1. 💰 Perkembangan Total Income Klinik per Bulan (Termasuk Pajak)")
+    if not df_income_trend.empty:
+        fig_inc = px.bar(
+            df_income_trend,
+            x="Bulan",
+            y="Total Income (Rp)",
+            text_auto=",.0f",
+            title="Total Pendapatan Bersih & Pajak per Bulan (Rupiah)",
+            color="Bulan",
+            color_discrete_sequence=px.colors.qualitative.Set2
+        )
+        fig_inc.update_traces(textposition="outside", textfont_size=13)
+        fig_inc.update_layout(
+            xaxis_title="Bulan",
+            yaxis_title="Total Pendapatan (Rp)",
+            showlegend=False,
+            height=400,
+            margin=dict(l=20, r=20, t=40, b=30)
+        )
+        st.plotly_chart(fig_inc, use_container_width=True)
+    else:
+        st.info("Data Total Income belum tersedia.")
+
+    st.markdown("---")
+
+    # --- BAR CHART 2: PROGRESS PASIEN MCU TIAP BULAN (LOKAL VS TURIS) ---
+    st.subheader("2. 🩺 Progress Pasien MCU per Bulan (Lokal vs Turis)")
+    if not df_mcu_trend.empty:
+        df_mcu_melt = pd.melt(
+            df_mcu_trend,
+            id_vars=["Bulan"],
+            value_vars=["Lokal", "Turis / Bule"],
+            var_name="Kategori Pasien",
+            value_name="Jumlah Pasien"
+        )
+        fig_mcu = px.bar(
+            df_mcu_melt,
+            x="Bulan",
+            y="Jumlah Pasien",
+            color="Kategori Pasien",
+            barmode="group",
+            text="Jumlah Pasien",
+            title="Perbandingan Jumlah Pasien MCU (Lokal vs Turis)",
+            color_discrete_map={"Lokal": "#29B6F6", "Turis / Bule": "#FF7043"}
+        )
+        fig_mcu.update_traces(textposition="outside", textfont_size=12)
+        fig_mcu.update_layout(
+            xaxis_title="Bulan",
+            yaxis_title="Jumlah Pasien MCU",
+            legend_title="Kategori Pasien",
+            height=400,
+            margin=dict(l=20, r=20, t=40, b=30)
+        )
+        st.plotly_chart(fig_mcu, use_container_width=True)
+    else:
+        st.info("Data Pasien MCU belum tersedia.")
+
+    st.markdown("---")
+
+    # --- BAR CHART 3: KATEGORI PENDAPATAN PER BULAN (MCU, PERAWATAN, FARMASI) ---
+    st.subheader("3. 📊 Kategori Pendapatan per Bulan (MCU, Perawatan/Tindakan, Farmasi)")
+    if not df_service_trend.empty:
+        fig_srv = px.bar(
+            df_service_trend,
+            x="Bulan",
+            y="Total",
+            color="Service_Type",
+            barmode="group",
+            text_auto=",.0f",
+            title="Breakdown Pendapatan per Kategori Layanan (Rupiah)",
+            color_discrete_map={
+                "Perawatan": "#4CAF50",
+                "Medical Check Up": "#FF9800",
+                "Farmasi": "#9C27B0"
+            }
+        )
+        fig_srv.update_traces(textposition="outside", textfont_size=11)
+        fig_srv.update_layout(
+            xaxis_title="Bulan",
+            yaxis_title="Pendapatan (Rp)",
+            legend_title="Kategori Layanan",
+            height=430,
+            margin=dict(l=20, r=20, t=40, b=30)
+        )
+        st.plotly_chart(fig_srv, use_container_width=True)
+    else:
+        st.info("Data Kategori Pendapatan belum tersedia.")
+
+
+# -------------------------------------------------------------
+# PAGE 2: MONTHLY DETAIL ANALYSIS 📊 (DASHBOARD FILTER BULANAN)
+# -------------------------------------------------------------
+elif page_option == "Monthly Detail Analysis 📊":
+    st.sidebar.markdown("---")
+    st.sidebar.title("🗓️ Filter Periode")
+    selected_month = st.sidebar.selectbox(
+        "PILIH BULAN TRANSAKSI:",
+        ["Juni 2026", "Juli 2026", "Agustus 2026", "September 2026"]
+    )
+
+    current_files = file_mapping[selected_month]
+    df_tx = load_tx_data(current_files["tx"])
+    df_mcu = load_mcu_data(current_files["mcu"])
+
+    if df_tx.empty and df_mcu.empty:
+        st.warning(f"⚠️ **Data {selected_month} Belum Tersedia / Sedang Diperbarui.**")
+        st.info(f"Silakan upload file `{current_files['tx']}` dan `{current_files['mcu']}` ke repository GitHub Anda.")
+        st.stop()
+
+    df_data = df_tx if not df_tx.empty else pd.DataFrame()
+
+    st.title(f"📊 Monthly Detail Analysis ({selected_month})")
+    st.markdown(f"Ringkasan performa operasional & detail transaksi klinik bulan **{selected_month}**.")
     st.markdown("---")
     
-    # 1. Total Revenue extracted DIRECTLY from Rekap Bulanan Data Transaksi Total sum
     total_rev = df_data['Total'].sum() if not df_data.empty else 0
     rev_bule = df_data[df_data['Patient_Category'] == 'Bule']['Total'].sum() if not df_data.empty else 0
     rev_lokal = df_data[df_data['Patient_Category'] == 'Lokal']['Total'].sum() if not df_data.empty else 0
@@ -196,7 +332,6 @@ if page_option == "Historical Data":
     pat_bule = len(df_data[df_data['Patient_Category'] == 'Bule']) if not df_data.empty else 0
     pat_lokal = len(df_data[df_data['Patient_Category'] == 'Lokal']) if not df_data.empty else 0
     
-    # MCU Count and Revenue from MCU File or Rekap
     if not df_mcu.empty:
         mcu_total = len(df_mcu)
         mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule'])
@@ -275,45 +410,6 @@ if page_option == "Historical Data":
 
     st.markdown("---")
 
-    st.subheader("📊 Detail Transaksi per Layanan (Perawatan, MCU, Farmasi)")
-    col_bar1, col_bar2 = st.columns(2)
-    
-    bule_data = df_data[df_data['Patient_Category'] == 'Bule'].groupby('Service_Type').agg(
-        Count=('Total', 'count'), Revenue=('Total', 'sum')
-    ).reset_index() if not df_data.empty else pd.DataFrame()
-
-    lokal_data = df_data[df_data['Patient_Category'] == 'Lokal'].groupby('Service_Type').agg(
-        Count=('Total', 'count'), Revenue=('Total', 'sum')
-    ).reset_index() if not df_data.empty else pd.DataFrame()
-
-    with col_bar1:
-        st.markdown("##### 🌍 Rekapan Pasien Bule")
-        if not bule_data.empty:
-            fig_bule = px.bar(
-                bule_data, y="Service_Type", x="Revenue", orientation="h",
-                text="Count", title="Pendapatan & Pasien Bule per Layanan", color_discrete_sequence=["#FF7043"]
-            )
-            fig_bule.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
-            fig_bule.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
-            st.plotly_chart(fig_bule, use_container_width=True)
-        else:
-            st.info("Belum ada data transaksi pasien bule.")
-
-    with col_bar2:
-        st.markdown("##### 🇮🇩 Rekapan Pasien Lokal")
-        if not lokal_data.empty:
-            fig_lokal = px.bar(
-                lokal_data, y="Service_Type", x="Revenue", orientation="h",
-                text="Count", title="Pendapatan & Pasien Lokal per Layanan", color_discrete_sequence=["#29B6F6"]
-            )
-            fig_lokal.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
-            fig_lokal.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
-            st.plotly_chart(fig_lokal, use_container_width=True)
-        else:
-            st.info("Belum ada data transaksi pasien lokal.")
-
-    st.markdown("---")
-
     # --- TOP CASES & DIAGNOSA ---
     st.subheader("📋 Top Kasus Penyakit & Layanan Ditangani")
     col_case1, col_case2 = st.columns(2)
@@ -370,7 +466,10 @@ if page_option == "Historical Data":
         else:
             st.info("ℹ️ Belum ada data diagnosa untuk pasien lokal.")
 
-elif page_option == "Future Prospects":
+# -------------------------------------------------------------
+# PAGE 3: FUTURE PROSPECTS 🎯
+# -------------------------------------------------------------
+elif page_option == "Future Prospects 🎯":
     st.title("🎯 Future Prospects & Financial Target")
     st.markdown("Strategi & rincian target operasional harian, mingguan, dan bulanan untuk mencapai profitabilitas optimal.")
     st.markdown("---")
@@ -480,34 +579,3 @@ elif page_option == "Future Prospects":
     
     df_target_table = pd.DataFrame(target_table_data)
     st.dataframe(df_target_table, use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    col_chart1, col_chart2 = st.columns(2)
-    
-    with col_chart1:
-        st.markdown("##### 📊 Proporsi Target Pendapatan per Layanan")
-        df_prop = pd.DataFrame({
-            "Layanan": ["Perawatan Bule", "MCU Bule", "Perawatan Lokal", "MCU Lokal", "Farmasi Lokal"],
-            "Target Omset Harian (Rp)": [7200000, 250000, 2450000, 450000, 483336]
-        })
-        fig_prop = px.bar(
-            df_prop, x="Layanan", y="Target Omset Harian (Rp)", color="Layanan",
-            text_auto=".2s", title="Target Omset Harian per Layanan (Rp)"
-        )
-        fig_prop.update_layout(showlegend=False, xaxis_title="", yaxis_title="Rupiah / Hari")
-        st.plotly_chart(fig_prop, use_container_width=True)
-
-    with col_chart2:
-        st.markdown("##### 👥 Target Volume Pasien Harian")
-        df_vol = pd.DataFrame({
-            "Layanan": ["Perawatan Bule", "MCU Bule", "Perawatan Lokal", "MCU Lokal", "Farmasi Lokal"],
-            "Pasien / Hari": [1.6, 5.0, 7.0, 15.0, 8.0]
-        })
-        fig_vol = px.bar(
-            df_vol, x="Layanan", y="Pasien / Hari", color="Layanan",
-            text="Pasien / Hari", title="Target Volume Pasien Datang per Hari"
-        )
-        fig_vol.update_traces(textposition="outside")
-        fig_vol.update_layout(showlegend=False, xaxis_title="", yaxis_title="Jumlah Pasien / Hari")
-        st.plotly_chart(fig_vol, use_container_width=True)
