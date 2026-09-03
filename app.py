@@ -195,9 +195,22 @@ if page_option == "Historical Monthly Trend 📈":
                 "Total Income (Rp)": tot_inc
             })
 
-            # Service Type Breakdown from Data Transaksi
-            srv_grp = df_tx_m.groupby('Service_Type')['Total'].sum().reset_index()
-            srv_grp['Bulan'] = month_name
+            # Service Type Breakdown (Synced with df_mcu)
+            if not df_mcu_m.empty:
+                mcu_rev_tot = df_mcu_m['Total'].sum()
+            else:
+                mcu_rev_tot = df_tx_m[df_tx_m['Service_Type'] == 'Medical Check Up']['Total'].sum()
+                
+            farmasi_rev_tot = df_tx_m[df_tx_m['Service_Type'] == 'Farmasi']['Total'].sum()
+            perawatan_rev_tot = tot_inc - mcu_rev_tot - farmasi_rev_tot
+            if perawatan_rev_tot < 0:
+                perawatan_rev_tot = df_tx_m[df_tx_m['Service_Type'] == 'Perawatan']['Total'].sum()
+
+            srv_grp = pd.DataFrame([
+                {"Service_Type": "Medical Check Up", "Total": mcu_rev_tot, "Bulan": month_name},
+                {"Service_Type": "Farmasi", "Total": farmasi_rev_tot, "Bulan": month_name},
+                {"Service_Type": "Perawatan", "Total": perawatan_rev_tot, "Bulan": month_name}
+            ])
             service_summary.append(srv_grp)
 
         # MCU Patient Volume Count
