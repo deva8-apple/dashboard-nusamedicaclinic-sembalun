@@ -332,19 +332,20 @@ elif page_option == "Monthly Detail Analysis 📊":
     pat_bule = len(df_tx[df_tx['Patient_Category'] == 'Bule']) if not df_tx.empty else 0
     pat_lokal = len(df_tx[df_tx['Patient_Category'] == 'Lokal']) if not df_tx.empty else 0
 
-    # MCU Calculations from Data Transaksi
+    # MCU Calculations (Sync between df_mcu and df_tx)
     mcu_tx = df_tx[df_tx['Service_Type'] == 'Medical Check Up'] if not df_tx.empty else pd.DataFrame()
     if not df_mcu.empty:
         mcu_total = len(df_mcu)
         mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule'])
         mcu_lokal = len(df_mcu[df_mcu['Patient_Category'] == 'Lokal'])
+        mcu_rev_bule = df_mcu[df_mcu['Patient_Category'] == 'Bule']['Total'].sum()
+        mcu_rev_lokal = df_mcu[df_mcu['Patient_Category'] == 'Lokal']['Total'].sum()
     else:
         mcu_total = len(mcu_tx)
         mcu_bule = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
         mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
-
-    mcu_rev_bule = mcu_tx[mcu_tx['Patient_Category'] == 'Bule']['Total'].sum() if not mcu_tx.empty else 0
-    mcu_rev_lokal = mcu_tx[mcu_tx['Patient_Category'] == 'Lokal']['Total'].sum() if not mcu_tx.empty else 0
+        mcu_rev_bule = mcu_tx[mcu_tx['Patient_Category'] == 'Bule']['Total'].sum() if not mcu_tx.empty else 0
+        mcu_rev_lokal = mcu_tx[mcu_tx['Patient_Category'] == 'Lokal']['Total'].sum() if not mcu_tx.empty else 0
 
     col1, col2, col3 = st.columns(3)
     
