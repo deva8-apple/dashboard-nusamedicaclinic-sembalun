@@ -30,17 +30,21 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# SIDEBAR: PERIODE SELECTOR
+# SIDEBAR: PERIODE SELECTOR (JUNI - SEPTEMBER 2026)
 # -------------------------------------------------------------
 st.sidebar.title("🗓️ Filter Periode Data")
 
 selected_month = st.sidebar.selectbox(
     "PILIH BULAN TRANSAKSI:",
-    ["Juli 2026", "Agustus 2026", "September 2026"]
+    ["Juni 2026", "Juli 2026", "Agustus 2026", "September 2026"]
 )
 
 # Mapping nama file untuk tiap bulan
 file_mapping = {
+    "Juni 2026": {
+        "tx": "Rekap Bulanan Juni 2026.xlsx",
+        "mcu": "MCU Recap Jun 2026.xlsx"
+    },
     "Juli 2026": {
         "tx": "Rekap Bulanan Juli 2026.xlsx",
         "mcu": "MCU Recap Jul 2026.xlsx"
@@ -157,7 +161,7 @@ page_option = st.sidebar.radio(
 
 if page_option == "Historical Data":
     st.title(f"📊 Historical Data Performance ({selected_month})")
-    st.markdown(f"Ringkasan performa operasional & keuangan klinik bulan **{selected_month}** (Update Mingguan Berjalan).")
+    st.markdown(f"Ringkasan performa operasional & keuangan klinik bulan **{selected_month}**.")
     st.markdown("---")
     
     total_rev = df_data['Total'].sum()
