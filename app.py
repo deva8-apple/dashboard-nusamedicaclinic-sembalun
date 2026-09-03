@@ -39,7 +39,7 @@ selected_month = st.sidebar.selectbox(
     ["Juni 2026", "Juli 2026", "Agustus 2026", "September 2026"]
 )
 
-# Mapping nama file presisi sesuai instruksi
+# Mapping nama file presisi sesuai seluruh instruksi
 file_mapping = {
     "Juni 2026": {
         "tx": "Rekap Bulanan Juni 2026.xlsx",
@@ -47,7 +47,7 @@ file_mapping = {
     },
     "Juli 2026": {
         "tx": "Rekap Bulanan Juli 2026.xlsx",
-        "mcu": "MCU Recap Jul 2026.xlsx"
+        "mcu": "MCU Recap Juli 2026.xlsx"
     },
     "Agustus 2026": {
         "tx": "Rekap Bulanan Agustus 2026.xlsx",
