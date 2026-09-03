@@ -13,9 +13,7 @@ st.set_page_config(
 # Custom Styling
 st.markdown("""
     <style>
-    .main {
-        background-color: #f8f9fa;
-    }
+    .main { background-color: #f8f9fa; }
     .metric-card {
         background-color: #ffffff;
         border-radius: 10px;
@@ -24,31 +22,43 @@ st.markdown("""
         border-left: 5px solid #1E88E5;
         margin-bottom: 10px;
     }
-    .metric-title {
-        font-size: 14px;
-        color: #6c757d;
-        font-weight: 600;
-        margin-bottom: 5px;
-    }
-    .metric-value {
-        font-size: 22px;
-        font-weight: bold;
-        color: #2c3e50;
-    }
-    .metric-sub {
-        font-size: 13px;
-        color: #555555;
-        margin-top: 3px;
-    }
+    .metric-title { font-size: 14px; color: #6c757d; font-weight: 600; margin-bottom: 5px; }
+    .metric-value { font-size: 22px; font-weight: bold; color: #2c3e50; }
+    .metric-sub { font-size: 13px; color: #555555; margin-top: 3px; }
     </style>
 """, unsafe_allow_html=True)
 
-# Load and process database dynamically from Rekap Bulanan Agustus 2026.xlsx
+# -------------------------------------------------------------
+# DYNAMIC DATA EXTRACTION FUNCTIONS
+# -------------------------------------------------------------
+
+# Function 1: Extract MCU Data from Updated August MCU Spreadsheet
 @st.cache_data
-def load_data():
-    excel_path = 'Rekap Bulanan Agustus 2026.xlsx'
-    df = pd.read_excel(excel_path, sheet_name='Data Transaksi')
-    df_clean = df.dropna(subset=['No. Reg/Invoice']).copy()
+def load_mcu_data():
+    excel_mcu = 'MCU Recap Aug 2026.xlsx'
+    df_mcu = pd.read_excel(excel_mcu, sheet_name='Runners data')
+    df_mcu_clean = df_mcu.dropna(subset=['Nama Pasien']).copy()
+    
+    def classify_mcu_country(row):
+        country = str(row['Asal Negara']).strip().upper()
+        if country in ['INDONESIA', 'NAN', '']:
+            return 'Lokal'
+        else:
+            return 'Bule'
+
+    df_mcu_clean['Patient_Category'] = df_mcu_clean.apply(classify_mcu_country, axis=1)
+    df_mcu_clean['Service_Type'] = 'Medical Check Up'
+    
+    # August Tariff (Bule Rp 50.000, Lokal Rp 30.000)
+    df_mcu_clean['Total'] = df_mcu_clean['Patient_Category'].apply(lambda x: 50000.0 if x == 'Bule' else 30000.0)
+    return df_mcu_clean
+
+# Function 2: Extract Treatment & Pharmacy Data from Rekap Bulanan
+@st.cache_data
+def load_tx_data():
+    excel_tx = 'Rekap Bulanan Agustus 2026.xlsx'
+    df_tx = pd.read_excel(excel_tx, sheet_name='Data Transaksi')
+    df_tx_clean = df_tx.dropna(subset=['No. Reg/Invoice']).copy()
     
     def classify_patient_type(row):
         jp = str(row['Jenis Pasien']).strip()
@@ -63,28 +73,32 @@ def load_data():
             else:
                 return 'Bule'
 
-    df_clean['Patient_Category'] = df_clean.apply(classify_patient_type, axis=1)
+    df_tx_clean['Patient_Category'] = df_tx_clean.apply(classify_patient_type, axis=1)
 
     def classify_service(row):
         nama = str(row['Nama Pasien']).upper()
-        total = row['Total']
-        p_cat = row['Patient_Category']
-        
         if 'PHARMACY' in nama:
             return 'Farmasi'
-        elif p_cat == 'Lokal' and total == 30000.0:
-            return 'Medical Check Up'
-        elif p_cat == 'Bule' and total == 50000.0:
-            return 'Medical Check Up'
         else:
             return 'Perawatan'
 
-    df_clean['Service_Type'] = df_clean.apply(classify_service, axis=1)
-    return df_clean
+    # Filter out standalone MCU rows to avoid double-counting
+    df_tx_clean = df_tx_clean[~((df_tx_clean['Total'] == 30000.0) | (df_tx_clean['Total'] == 50000.0))].copy()
+    df_tx_clean['Service_Type'] = df_tx_clean.apply(classify_service, axis=1)
+    return df_tx_clean
 
-df_data = load_data()
+# Load and Combine Datasets
+df_mcu = load_mcu_data()
+df_tx = load_tx_data()
 
-# Sidebar Navigation
+df_mcu_subset = df_mcu[['Patient_Category', 'Service_Type', 'Total']].copy()
+df_tx_subset = df_tx[['Patient_Category', 'Service_Type', 'Total', 'Nama Diagnosa']].copy()
+df_data = pd.concat([df_mcu_subset, df_tx_subset], ignore_index=True)
+
+# -------------------------------------------------------------
+# STREAMLIT UI & INTERFACE
+# -------------------------------------------------------------
+
 st.sidebar.title("🏥 Navigasi Klinik")
 st.sidebar.markdown("---")
 page_option = st.sidebar.radio(
@@ -97,10 +111,9 @@ page_option = st.sidebar.radio(
 # ==========================================
 if page_option == "Historical Data":
     st.title("📊 Historical Data Performance")
-    st.markdown("Ringkasan performa operasional & keuangan klinik berdasarkan database transaksi `Rekap Bulanan Agustus 2026.xlsx`.")
+    st.markdown("Ringkasan performa operasional & keuangan klinik berdasarkan ekstrak `MCU Recap Aug 2026.xlsx` & `Rekap Bulanan Agustus 2026.xlsx`.")
     st.markdown("---")
     
-    # Calculate Metrics dynamically
     total_rev = df_data['Total'].sum()
     rev_bule = df_data[df_data['Patient_Category'] == 'Bule']['Total'].sum()
     rev_lokal = df_data[df_data['Patient_Category'] == 'Lokal']['Total'].sum()
@@ -109,12 +122,11 @@ if page_option == "Historical Data":
     pat_bule = len(df_data[df_data['Patient_Category'] == 'Bule'])
     pat_lokal = len(df_data[df_data['Patient_Category'] == 'Lokal'])
     
-    mcu_df = df_data[df_data['Service_Type'] == 'Medical Check Up']
-    mcu_total = len(mcu_df)
-    mcu_bule = len(mcu_df[mcu_df['Patient_Category'] == 'Bule'])
-    mcu_lokal = len(mcu_df[mcu_df['Patient_Category'] == 'Lokal'])
-    mcu_rev_bule = mcu_df[mcu_df['Patient_Category'] == 'Bule']['Total'].sum()
-    mcu_rev_lokal = mcu_df[mcu_df['Patient_Category'] == 'Lokal']['Total'].sum()
+    mcu_total = len(df_mcu)
+    mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule'])
+    mcu_lokal = len(df_mcu[df_mcu['Patient_Category'] == 'Lokal'])
+    mcu_rev_bule = df_mcu[df_mcu['Patient_Category'] == 'Bule']['Total'].sum()
+    mcu_rev_lokal = mcu_df[mcu_df['Patient_Category'] == 'Lokal']['Total'].sum() if 'mcu_df' in locals() else df_mcu[df_mcu['Patient_Category'] == 'Lokal']['Total'].sum()
 
     # --- TOP SUMMARY CARDS ---
     col1, col2, col3 = st.columns(3)
@@ -182,7 +194,7 @@ if page_option == "Historical Data":
 
     st.markdown("---")
 
-    # --- HORIZONTAL BAR CHARTS (REKAPAN BULE & LOKAL) ---
+    # --- HORIZONTAL BAR CHARTS ---
     st.subheader("📊 Detail Transaksi per Layanan (Perawatan, MCU, Farmasi)")
     col_bar1, col_bar2 = st.columns(2)
     
@@ -197,36 +209,20 @@ if page_option == "Historical Data":
     with col_bar1:
         st.markdown("##### 🌍 Rekapan Pasien Bule")
         fig_bule = px.bar(
-            bule_data, 
-            y="Service_Type", 
-            x="Revenue", 
-            orientation="h",
-            text="Count",
-            title="Pendapatan & Pasien Bule per Layanan",
-            color_discrete_sequence=["#FF7043"]
+            bule_data, y="Service_Type", x="Revenue", orientation="h",
+            text="Count", title="Pendapatan & Pasien Bule per Layanan", color_discrete_sequence=["#FF7043"]
         )
-        fig_bule.update_traces(
-            texttemplate="%{x:,.0f} IDR (%{text} Pasien)", 
-            textposition="inside"
-        )
+        fig_bule.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
         fig_bule.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
         st.plotly_chart(fig_bule, use_container_width=True)
 
     with col_bar2:
         st.markdown("##### 🇮🇩 Rekapan Pasien Lokal")
         fig_lokal = px.bar(
-            lokal_data, 
-            y="Service_Type", 
-            x="Revenue", 
-            orientation="h",
-            text="Count",
-            title="Pendapatan & Pasien Lokal per Layanan",
-            color_discrete_sequence=["#29B6F6"]
+            lokal_data, y="Service_Type", x="Revenue", orientation="h",
+            text="Count", title="Pendapatan & Pasien Lokal per Layanan", color_discrete_sequence=["#29B6F6"]
         )
-        fig_lokal.update_traces(
-            texttemplate="%{x:,.0f} IDR (%{text} Pasien)", 
-            textposition="inside"
-        )
+        fig_lokal.update_traces(texttemplate="%{x:,.0f} IDR (%{text} Pasien)", textposition="inside")
         fig_lokal.update_layout(xaxis_title="Total Pendapatan (Rp)", yaxis_title="")
         st.plotly_chart(fig_lokal, use_container_width=True)
 
@@ -238,7 +234,7 @@ if page_option == "Historical Data":
     
     with col_case1:
         st.markdown("##### 🌍 Top Kasus Diagnosa Pasien Bule")
-        bule_diag = df_data[(df_data['Patient_Category'] == 'Bule') & (df_data['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
+        bule_diag = df_tx[(df_tx['Patient_Category'] == 'Bule') & (df_tx['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
         bule_diag.columns = ['Diagnosa', 'Jumlah']
         bule_diag = bule_diag.sort_values('Jumlah', ascending=True)
         
@@ -252,7 +248,7 @@ if page_option == "Historical Data":
 
     with col_case2:
         st.markdown("##### 🇮🇩 Top Kasus Diagnosa Pasien Lokal")
-        lokal_diag = df_data[(df_data['Patient_Category'] == 'Lokal') & (df_data['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
+        lokal_diag = df_tx[(df_tx['Patient_Category'] == 'Lokal') & (df_tx['Nama Diagnosa'].notna())]['Nama Diagnosa'].value_counts().head(7).reset_index()
         lokal_diag.columns = ['Diagnosa', 'Jumlah']
         lokal_diag = lokal_diag.sort_values('Jumlah', ascending=True)
         
@@ -272,7 +268,6 @@ elif page_option == "Future Prospects":
     st.markdown("Strategi & rincian target operasional harian, mingguan, dan bulanan untuk mencapai profitabilitas optimal.")
     st.markdown("---")
     
-    # Financial Back-Calculations
     target_bulan = 325000000
     profit_margin = 0.25
     profit_bulan = target_bulan * profit_margin
@@ -280,7 +275,6 @@ elif page_option == "Future Prospects":
     target_hari = target_bulan / 30
     profit_hari = profit_bulan / 30
 
-    # --- TOP SUMMARY TARGET CARDS ---
     st.subheader("💡 Rangkuman Target Pendapatan & Profitabilitas (25% Margin)")
     col_t1, col_t2, col_t3, col_t4 = st.columns(4)
     
@@ -322,7 +316,6 @@ elif page_option == "Future Prospects":
 
     st.markdown("---")
 
-    # --- TARGET RINCIAN PER LAYANAN TABLE ---
     st.subheader("📌 Rincian Target Operasional per Layanan & Kategori Pasien")
     st.markdown("*(Menyesuaikan penyesuaian tarif Agustus: MCU Bule Rp 50.000 & MCU Lokal Rp 30.000)*")
     
