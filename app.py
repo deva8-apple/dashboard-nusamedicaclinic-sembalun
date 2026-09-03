@@ -168,45 +168,32 @@ if page_option == "Historical Monthly Trend 📈":
         df_tx_m = load_tx_data(files["tx"])
         df_mcu_m = load_mcu_data(files["mcu"])
 
-        # Exclude MCU rows from df_tx_m when grouping non-MCU services to avoid double counting
-        df_tx_non_mcu = df_tx_m[df_tx_m['Service_Type'] != 'Medical Check Up'] if not df_tx_m.empty else pd.DataFrame()
-
-        # Calculate accurate MCU Revenue
-        if not df_mcu_m.empty:
-            mcu_rev = df_mcu_m['Total'].sum()
-            mcu_lokal = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Lokal'])
-            mcu_turis = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Bule'])
-        elif not df_tx_m.empty:
-            mcu_tx = df_tx_m[df_tx_m['Service_Type'] == 'Medical Check Up']
-            mcu_rev = mcu_tx['Total'].sum()
-            mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
-            mcu_turis = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
-        else:
-            mcu_rev = 0
-            mcu_lokal = 0
-            mcu_turis = 0
-
-        # Total Revenue (Non-MCU Transaksi + MCU Recap)
-        non_mcu_rev = df_tx_non_mcu['Total'].sum() if not df_tx_non_mcu.empty else 0
-        tot_inc = non_mcu_rev + mcu_rev
-
-        if tot_inc > 0:
+        if not df_tx_m.empty:
+            # Exact Total Income from Data Transaksi
+            tot_inc = df_tx_m['Total'].sum()
             monthly_summary.append({
                 "Bulan": month_name,
                 "Total Income (Rp)": tot_inc
             })
 
-            # Breakdown for Chart 3: Non-MCU services from Rekap + MCU from MCU Recap
-            if not df_tx_non_mcu.empty:
-                srv_grp = df_tx_non_mcu.groupby('Service_Type')['Total'].sum().reset_index()
-            else:
-                srv_grp = pd.DataFrame(columns=['Service_Type', 'Total'])
-
-            # Append MCU Category
-            srv_grp = pd.concat([srv_grp, pd.DataFrame([{"Service_Type": "Medical Check Up", "Total": mcu_rev}])], ignore_index=True)
+            # Service Type Breakdown from Data Transaksi
+            srv_grp = df_tx_m.groupby('Service_Type')['Total'].sum().reset_index()
             srv_grp['Bulan'] = month_name
             service_summary.append(srv_grp)
 
+        # MCU Patient Volume Count
+        if not df_mcu_m.empty:
+            mcu_lokal = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Lokal'])
+            mcu_turis = len(df_mcu_m[df_mcu_m['Patient_Category'] == 'Bule'])
+            mcu_summary.append({
+                "Bulan": month_name,
+                "Lokal": mcu_lokal,
+                "Turis / Bule": mcu_turis
+            })
+        elif not df_tx_m.empty:
+            mcu_tx = df_tx_m[df_tx_m['Service_Type'] == 'Medical Check Up']
+            mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
+            mcu_turis = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
             mcu_summary.append({
                 "Bulan": month_name,
                 "Lokal": mcu_lokal,
@@ -336,37 +323,28 @@ elif page_option == "Monthly Detail Analysis 📊":
     st.markdown(f"Ringkasan performa operasional & detail transaksi klinik bulan **{selected_month}**.")
     st.markdown("---")
 
-    # Clean non-MCU transactions from df_tx to prevent double counting
-    df_tx_non_mcu = df_tx[df_tx['Service_Type'] != 'Medical Check Up'].copy() if not df_tx.empty else pd.DataFrame()
+    # Exact Total Revenue directly from Data Transaksi file
+    total_rev = df_tx['Total'].sum() if not df_tx.empty else 0
+    rev_bule = df_tx[df_tx['Patient_Category'] == 'Bule']['Total'].sum() if not df_tx.empty else 0
+    rev_lokal = df_tx[df_tx['Patient_Category'] == 'Lokal']['Total'].sum() if not df_tx.empty else 0
 
-    # Calculate MCU counts and revenues
+    total_pat = len(df_tx) if not df_tx.empty else 0
+    pat_bule = len(df_tx[df_tx['Patient_Category'] == 'Bule']) if not df_tx.empty else 0
+    pat_lokal = len(df_tx[df_tx['Patient_Category'] == 'Lokal']) if not df_tx.empty else 0
+
+    # MCU Calculations from Data Transaksi
+    mcu_tx = df_tx[df_tx['Service_Type'] == 'Medical Check Up'] if not df_tx.empty else pd.DataFrame()
     if not df_mcu.empty:
         mcu_total = len(df_mcu)
         mcu_bule = len(df_mcu[df_mcu['Patient_Category'] == 'Bule'])
         mcu_lokal = len(df_mcu[df_mcu['Patient_Category'] == 'Lokal'])
-        mcu_rev_bule = df_mcu[df_mcu['Patient_Category'] == 'Bule']['Total'].sum()
-        mcu_rev_lokal = df_mcu[df_mcu['Patient_Category'] == 'Lokal']['Total'].sum()
     else:
-        mcu_tx = df_tx[df_tx['Service_Type'] == 'Medical Check Up'] if not df_tx.empty else pd.DataFrame()
         mcu_total = len(mcu_tx)
         mcu_bule = len(mcu_tx[mcu_tx['Patient_Category'] == 'Bule'])
         mcu_lokal = len(mcu_tx[mcu_tx['Patient_Category'] == 'Lokal'])
-        mcu_rev_bule = mcu_tx[mcu_tx['Patient_Category'] == 'Bule']['Total'].sum()
-        mcu_rev_lokal = mcu_tx[mcu_tx['Patient_Category'] == 'Lokal']['Total'].sum()
 
-    mcu_rev_total = mcu_rev_bule + mcu_rev_lokal
-
-    # Non-MCU revenues
-    non_mcu_rev_bule = df_tx_non_mcu[df_tx_non_mcu['Patient_Category'] == 'Bule']['Total'].sum() if not df_tx_non_mcu.empty else 0
-    non_mcu_rev_lokal = df_tx_non_mcu[df_tx_non_mcu['Patient_Category'] == 'Lokal']['Total'].sum() if not df_tx_non_mcu.empty else 0
-
-    total_rev = non_mcu_rev_bule + non_mcu_rev_lokal + mcu_rev_total
-    rev_bule = non_mcu_rev_bule + mcu_rev_bule
-    rev_lokal = non_mcu_rev_lokal + mcu_rev_lokal
-
-    total_pat = (len(df_tx_non_mcu) if not df_tx_non_mcu.empty else 0) + mcu_total
-    pat_bule = (len(df_tx_non_mcu[df_tx_non_mcu['Patient_Category'] == 'Bule']) if not df_tx_non_mcu.empty else 0) + mcu_bule
-    pat_lokal = (len(df_tx_non_mcu[df_tx_non_mcu['Patient_Category'] == 'Lokal']) if not df_tx_non_mcu.empty else 0) + mcu_lokal
+    mcu_rev_bule = mcu_tx[mcu_tx['Patient_Category'] == 'Bule']['Total'].sum() if not mcu_tx.empty else 0
+    mcu_rev_lokal = mcu_tx[mcu_tx['Patient_Category'] == 'Lokal']['Total'].sum() if not mcu_tx.empty else 0
 
     col1, col2, col3 = st.columns(3)
     
@@ -382,8 +360,8 @@ elif page_option == "Monthly Detail Analysis 📊":
     with col2:
         st.markdown(f"""
         <div class="metric-card" style="border-left-color: #1976D2;">
-            <div class="metric-title">👥 TOTAL PASIEN DATANG</div>
-            <div class="metric-value">{total_pat} Pasien</div>
+            <div class="metric-title">👥 TOTAL TRANSAKSI PASIEN</div>
+            <div class="metric-value">{total_pat} Transaksi</div>
             <div class="metric-sub">Bule: <b>{pat_bule} Pasien</b> ({(pat_bule/total_pat)*100 if total_pat else 0:.1f}%)<br>Lokal: <b>{pat_lokal} Pasien</b> ({(pat_lokal/total_pat)*100 if total_pat else 0:.1f}%)</div>
         </div>
         """, unsafe_allow_html=True)
@@ -419,15 +397,13 @@ elif page_option == "Monthly Detail Analysis 📊":
         st.plotly_chart(fig_pasien, use_container_width=True)
 
     with col_pie2:
-        # Separate MCU Lokal & MCU Bule from other services
-        perawatan_rev = df_tx_non_mcu[df_tx_non_mcu['Service_Type'] == 'Perawatan']['Total'].sum() if not df_tx_non_mcu.empty else 0
-        farmasi_rev = df_tx_non_mcu[df_tx_non_mcu['Service_Type'] == 'Farmasi']['Total'].sum() if not df_tx_non_mcu.empty else 0
+        perawatan_rev = df_tx[df_tx['Service_Type'] == 'Perawatan']['Total'].sum() if not df_tx.empty else 0
+        farmasi_rev = df_tx[df_tx['Service_Type'] == 'Farmasi']['Total'].sum() if not df_tx.empty else 0
 
         df_rev_sep = pd.DataFrame({
             "Kategori Layanan": ["MCU Lokal", "MCU Bule / Turis", "Perawatan & Tindakan", "Farmasi"],
             "Pendapatan": [mcu_rev_lokal, mcu_rev_bule, perawatan_rev, farmasi_rev]
         })
-        # Filter out 0 values for clean pie display
         df_rev_sep = df_rev_sep[df_rev_sep["Pendapatan"] > 0]
 
         fig_rev = px.pie(
